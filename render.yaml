@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: top10-bot
+    runtime: docker
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    # ใช้ env จาก dashboard (secret) — ใส่ตอน deploy ครั้งแรก
+    envVars:
+      - key: APP_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: GOOGLE_DRIVE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_DRIVE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_DRIVE_REFRESH_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        value: sqlite:////tmp/jobs.db
+      - key: LOCAL_OUTPUT_DIR
+        value: /tmp/output
+      - key: SHOT_MAX_SECONDS
+        value: "10"
+      - key: SHOT_LLM_PROMPTS
+        value: "1"

@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+requests
+ddgs
+google-api-python-client
+google-auth-oauthlib
+sqlalchemy
+python-dotenv
+python-docx
+Pillow
