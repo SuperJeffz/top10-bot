@@ -352,7 +352,7 @@ export default function App() {
             🎬 Top10 Bot
           </h1>
           <p className="text-slate-600 mt-1">
-            สร้างสคริป + สตอรี่บอร์ด 10 อันดับ พร้อมรูปภาพ — ทำงานเบื้องหลังไม่จำกัดเวลา
+            สร้างสคริป + สตอรี่บอร์ด + พรอมป์ตวิดีโอ 10 อันดับ — เร็วขึ้น ไม่รอค้นหารูป
           </p>
         </header>
 
@@ -406,7 +406,7 @@ export default function App() {
             disabled={loading || !topic.trim()}
             className="w-full md:w-auto bg-blue-600 text-white px-8 py-2.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? "กำลังส่งงาน..." : "🚀 สร้างสคริป + ค้นหารูป"}
+            {loading ? "กำลังส่งงาน..." : "🚀 สร้างสคริป + พรอมป์ตวิดีโอ"}
           </button>
 
           {config?.provider === "gemini" && !config.gemini_key_set && (
@@ -435,7 +435,7 @@ export default function App() {
                   <div className="h-full w-1/3 bg-blue-500 animate-pulse" />
                 </div>
                 <p className="text-sm text-slate-500 mt-2">
-                  กำลังเขียนสคริปและค้นหารูป... (1 นาที ≈ 1–3 นาทีประมวลผล)
+                  กำลังเขียนสคริปและแบ่งช็อต... (งาน 1 นาทีโดยปกติ 1–3 นาที)
                 </p>
               </div>
             )}
