@@ -4,7 +4,6 @@ import tempfile
 import shutil
 
 from app.llm import generate_storyboard
-from app.image_search import search_image_urls, download_image
 from app.database import SessionLocal, Job
 
 
@@ -94,7 +93,8 @@ def _build_shots(storyboard, workdir, images_dir, use_llm=True):
             shots, os.path.join(workdir, "shots.csv")),
         "shots_readme": sb.write_shots_readme(
             shots, storyboard.get("topic") or "", max_seconds,
-            os.path.join(workdir, "shots_README.md")),
+            os.path.join(workdir, "shots_README.md"),
+            with_images=any(s.get("ref_image") for s in shots)),
     }
 
     try:
@@ -124,6 +124,16 @@ def _drive_configured():
             "GOOGLE_DRIVE_CLIENT_SECRET",
             "GOOGLE_DRIVE_REFRESH_TOKEN",
         )
+    )
+
+
+def _image_search_enabled():
+    """ค้นหารูปอินเทอร์เน็ตหรือไม่ (ปิดตามค่าเริ่มต้น เพราะเป็นจุดที่ช้าสุด)
+
+    เปิดกลับได้ด้วย ENABLE_IMAGE_SEARCH=1
+    """
+    return (os.getenv("ENABLE_IMAGE_SEARCH") or "0").strip().lower() in (
+        "1", "true", "yes"
     )
 
 
@@ -215,22 +225,27 @@ def process_top10_job(job_id: str, topic: str, minutes: int):
             print(f"[WARN] docx build failed: {e}")
             docx_path = None
 
-        # 2. ค้นหา + ดาวน์โหลดรูป
+        # 2. ค้นหา + ดาวน์โหลดรูป (ปิดอยู่โดย default — เป็นจุดที่ช้าสุด)
         images_dir = os.path.join(workdir, "images")
-        os.makedirs(images_dir, exist_ok=True)
-        for scene in storyboard["scenes"]:
-            query = scene.get("image_query")
-            if not query:
-                continue
-            for i, url in enumerate(search_image_urls(query, num=2)):
-                ext = os.path.splitext(url.split("?")[0])[1].lower()
-                if ext not in (".jpg", ".jpeg", ".png", ".webp"):
-                    ext = ".jpg"
-                fname = f"scene_{scene['scene_id']:02d}_img{i}{ext}"
-                try:
-                    download_image(url, os.path.join(images_dir, fname))
-                except Exception as e:
-                    print(f"[WARN] download failed {url}: {e}")
+        if _image_search_enabled():
+            from app.image_search import search_image_urls, download_image
+
+            os.makedirs(images_dir, exist_ok=True)
+            for scene in storyboard["scenes"]:
+                query = scene.get("image_query")
+                if not query:
+                    continue
+                for i, url in enumerate(search_image_urls(query, num=2)):
+                    ext = os.path.splitext(url.split("?")[0])[1].lower()
+                    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+                        ext = ".jpg"
+                    fname = f"scene_{scene['scene_id']:02d}_img{i}{ext}"
+                    try:
+                        download_image(url, os.path.join(images_dir, fname))
+                    except Exception as e:
+                        print(f"[WARN] download failed {url}: {e}")
+        else:
+            print("[images] ข้ามการค้นหารูป (โหมดเร็ว) — เก็บคำค้นภาพไว้ใน Word/CSV แทน")
 
         # 2.5 สร้างสตอรี่บอร์ด Word (ฝังรูปที่โหลดมาแล้ว)
         try:

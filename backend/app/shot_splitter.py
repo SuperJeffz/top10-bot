@@ -426,6 +426,14 @@ def attach_reference_images(shots, images_dir, shots_dir):
                         break
                 if files:
                     break
+        # ไฟล์ข้อความสำหรับ workflow แบบลากไฟล์วาง — เขียนทุกช็อตแม้ไม่มีรูป
+        try:
+            with open(os.path.join(shots_dir, f"shot_{s['shot_id']:02d}_prompt.txt"),
+                      "w", encoding="utf-8") as f:
+                f.write(s["video_prompt"])
+        except Exception as e:
+            print(f"[shots] เขียนไฟล์ txt ช็อต {s['shot_id']} ไม่ได้: {e}")
+
         if not files:
             continue
         src = files[(s["part"] - 1) % len(files)]
@@ -455,14 +463,6 @@ def attach_reference_images(shots, images_dir, shots_dir):
             s["ref_image"] = os.path.basename(dst)
         except Exception as e:
             print(f"[shots] คัดลอกรูปช็อต {s['shot_id']} ไม่ได้: {e}")
-
-        # ไฟล์ข้อความสำหรับ workflow แบบลากไฟล์วาง
-        try:
-            with open(os.path.join(shots_dir, f"shot_{s['shot_id']:02d}_prompt.txt"),
-                      "w", encoding="utf-8") as f:
-                f.write(s["video_prompt"])
-        except Exception as e:
-            print(f"[shots] เขียนไฟล์ txt ช็อต {s['shot_id']} ไม่ได้: {e}")
 
     # บทพากย์เขียนแยกเป็นรายฉาก (ผู้ใช้พากย์เอง ไม่ผูกกับช็อต)
     seen = set()
@@ -503,7 +503,7 @@ def write_shots_csv(shots, path):
     return path
 
 
-def write_shots_readme(shots, topic, max_seconds, path):
+def write_shots_readme(shots, topic, max_seconds, path, with_images=True):
     total = sum(s["duration_seconds"] for s in shots)
     lines = [
         f"# ช็อตสำหรับ gen วิดีโอ — 10 อันดับ {topic}",
@@ -516,11 +516,16 @@ def write_shots_readme(shots, topic, max_seconds, path):
         "",
         "| ไฟล์ | ใช้ทำอะไร |",
         "|---|---|",
-        "| `video_prompts.docx` | ⭐ พรอมป์ตทั้งหมด + รูปอ้างอิง เปิดอ่าน/ก๊อปง่าย |",
+        "| `video_prompts.docx` | ⭐ พรอมป์ตทั้งหมด "
+        + ("+ รูปอ้างอิง " if with_images else "")
+        + "เปิดอ่าน/ก๊อปง่าย |",
         "| `shots.csv` | เปิดใน Excel เพื่อทำทีละแถว / เช็กสถานะ |",
         "| `shots.json` | ให้โปรแกรมอื่นอ่านต่อ |",
         "| `shots/shot_XX_prompt.txt` | พรอมป์ตของช็อตนั้น (ก๊อปวางได้เลย) |",
-        "| `shots/shot_XX_ref.jpg` | รูปอ้างอิง (อัปเป็น start frame) |",
+    ]
+    if with_images:
+        lines.append("| `shots/shot_XX_ref.jpg` | รูปอ้างอิง (อัปเป็น start frame) |")
+    lines += [
         "| `shots/scene_XX_vo.txt` | บทพากย์ของฉาก (ไว้พากย์เสียงเอง) |",
         "",
         "## หลักการแบ่งช็อต",
@@ -534,7 +539,9 @@ def write_shots_readme(shots, topic, max_seconds, path):
         "",
         "1. เปิด `video_prompts.docx` ดูช็อตที่ 1",
         "2. เข้าเครื่องมือ gen วิดีโอที่ใช้ (ดูรายชื่อด้านล่าง)",
-        "3. **Image to Video** → อัปโหลด `shots/shot_01_ref.jpg`",
+        ("3. **Image to Video** → อัปโหลด `shots/shot_01_ref.jpg`"
+         if with_images else
+         "3. **Text to Video** → ใช้คำค้นภาพ/visual ใน docx เป็นแนวภาพ"),
         "4. ก๊อปพรอมป์ตจากช็อต 1 วางในช่อง prompt",
         "5. ตั้งความยาว 5–10 วินาที, อัตราส่วน 9:16 (หรือ 16:9 ตามช่องทาง)",
         "6. โหลดไฟล์ที่ได้ เปลี่ยนชื่อเป็น `shot_01.mp4` เก็บรวมกัน",

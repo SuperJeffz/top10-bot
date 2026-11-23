@@ -282,8 +282,9 @@ def build_storyboard_docx(storyboard, images_dir, path):
             if placed == 0:
                 left.add_paragraph().add_run("(ฝังรูปไม่สำเร็จ)").font.size = Pt(9)
         else:
-            ph = left.paragraphs[0].add_run("(ไม่พบรูปอ้างอิง)\nใช้คำค้น:")
+            ph = left.paragraphs[0].add_run("(โหมดเร็ว: ไม่ได้ดาวน์โหลดรูป)\nคำค้นภาพ:")
             ph.font.size = Pt(9)
+            _apply_font(ph)
             left.add_paragraph().add_run(s.get("image_query") or "-").font.size = Pt(9)
 
         # ขวา: รายละเอียด
@@ -471,7 +472,7 @@ def build_video_prompts_docx(storyboard, shots, images_dir, path, max_seconds=10
                 cr.font.color.rgb = GREY
                 _apply_font(cr)
         else:
-            ph = left.paragraphs[0].add_run("(ไม่มีรูปอ้างอิง)\nใช้คำค้น:")
+            ph = left.paragraphs[0].add_run("(ไม่มีรูปอ้างอิง — ใช้คำค้นนี้หาเอง)\nคำค้นภาพ:")
             ph.font.size = Pt(9)
             _apply_font(ph)
             left.add_paragraph().add_run(s.get("image_query") or "-").font.size = Pt(9)

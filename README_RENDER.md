@@ -45,6 +45,7 @@ git push -u origin main
 | `LOCAL_OUTPUT_DIR` | `/tmp/output` | ตั้งใน render.yaml แล้ว |
 | `SHOT_MAX_SECONDS` | `10` | |
 | `SHOT_LLM_PROMPTS` | `1` | |
+| `ENABLE_IMAGE_SEARCH` | `0` | ตั้ง `1` เพื่อเปิดค้นหารูปอินเทอร์เน็ต (ช้ากว่ามาก) |
 
 > `RENDER_EXTERNAL_URL` Render ตั้งให้เอง — หนูใช้มันใน keepalive
 
