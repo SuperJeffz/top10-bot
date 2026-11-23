@@ -28,4 +28,12 @@ services:
       - key: SHOT_MAX_SECONDS
         value: "10"
       - key: SHOT_LLM_PROMPTS
+        value: "0"
+      - key: ENABLE_IMAGE_SEARCH
+        value: "0"
+      - key: GEMINI_STORYBOARD_BUDGET
+        value: "90"
+      - key: GEMINI_JSON_BUDGET
+        value: "20"
+      - key: GEMINI_MAX_ATTEMPTS
         value: "1"

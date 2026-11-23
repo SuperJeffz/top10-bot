@@ -96,7 +96,11 @@ def _call_model(
     }
     url = f"{API_BASE}/{model}:generateContent"
 
-    for attempt in range(2):
+    # Each Gemini model has its own free-tier quota (20 requests/day/model).
+    # Retrying many times burns the whole quota on a single job and triggers
+    # the low-quality offline fallback — keep it to one attempt by default.
+    max_attempts = max(1, int(os.getenv("GEMINI_MAX_ATTEMPTS", "1") or 1))
+    for attempt in range(max_attempts):
         try:
             r = requests.post(
                 url,
@@ -105,14 +109,14 @@ def _call_model(
                 timeout=timeout,
             )
         except requests.exceptions.Timeout:
-            if not fast_fail and attempt < 1:
+            if not fast_fail and attempt < max_attempts - 1:
                 time.sleep(2)
                 continue
             raise
 
-        # 503/429 เป็นช่วงโหลดสูงหรือโควต้าชั่วคราว → รอแล้ว retry โมเดลเดิมก่อน
+        # 503/429 เป็นช่วงโหลดสูงหรือโควต้าชั่วคราว → retry เฉพาะตอนตั้งค่าไว้
         if r.status_code in (429, 503):
-            if not fast_fail and attempt < 1:
+            if not fast_fail and attempt < max_attempts - 1:
                 time.sleep(3)
                 continue
             raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:200]}")
@@ -133,7 +137,7 @@ def _call_model(
 
         return _parse_json(text)
 
-    raise GeminiError(f"{model} -> ไม่พร้อมหลัง retry 2 ครั้ง")
+    raise GeminiError(f"{model} -> ไม่พร้อมหลัง retry {max_attempts} ครั้ง")
 
 
 def generate_storyboard(topic: str, minutes: int):
@@ -184,9 +188,16 @@ def generate_storyboard(topic: str, minutes: int):
                 print(f"[gemini] {model} ล้มเหลว ลองตัวถัดไป")
                 break
 
-    # Gemini ไม่พร้อมชั่วคราว (503 ทุกโมเดล) → ยัง delivers งานให้ได้
+    # Gemini ไม่พร้อมชั่วคราว (429 quota / 503) → ส่งงานให้ได้ แต่ต้องบอกชัดว่าเป็นแค่โครง
     print("[gemini] ทุกโมเดลไม่พร้อม ใช้บทสำรองออฟไลน์แทน")
-    return finalize(build_offline_storyboard(topic, minutes), topic, minutes)
+    data = finalize(build_offline_storyboard(topic, minutes), topic, minutes)
+    data["source"] = "offline_fallback"
+    data["warning"] = (
+        "⚠️ Gemini ใช้ไม่ได้ตอนนี้ (โควต้าฟรีหมดหรือโมเดลแออัด) — "
+        "บทด้านล่างเป็นแค่โครงตัวอย่างจากระบบสำรอง เนื้อหาไม่ได้มาจาก AI และยังใช้พากย์จริงไม่ได้ "
+        "รอประมาณ 12 ชั่วโมงจนโควต้ารีเซ็ต หรือเปลี่ยน GEMINI_API_KEY แล้วสร้างงานใหม่"
+    )
+    return data
 
 
 def generate_json(prompt: str, temperature: float = 0.7, timeout=(6, 15)):

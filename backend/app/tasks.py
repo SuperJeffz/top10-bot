@@ -19,7 +19,10 @@ def _update_job(db, job_id, **kwargs):
 
 
 def _write_script_md(storyboard, path):
-    lines = [
+    lines = []
+    if storyboard.get("warning"):
+        lines += [f"> {storyboard['warning']}", ""]
+    lines += [
         f"# 10 อันดับ {storyboard['topic']}",
         "",
         f"ความยาวรวม: {storyboard['total_minutes']} นาที "
@@ -208,6 +211,7 @@ def process_top10_job(job_id: str, topic: str, minutes: int):
 
         # 1. สร้างสคริป + สตอรี่บอร์ด
         storyboard = generate_storyboard(topic, minutes)
+        warning = storyboard.get("warning")
 
         workdir = tempfile.mkdtemp(prefix=f"top10_{job_id[:8]}_")
         json_path = os.path.join(workdir, "storyboard.json")
@@ -284,7 +288,7 @@ def process_top10_job(job_id: str, topic: str, minutes: int):
                 _update_job(
                     db, job_id, status="completed",
                     drive_folder_id=folder_id, drive_folder_link=link,
-                    local_folder_path=out_dir, error_message=None,
+                    local_folder_path=out_dir, error_message=warning,
                 )
             except Exception as e:
                 import traceback
@@ -293,14 +297,16 @@ def process_top10_job(job_id: str, topic: str, minutes: int):
                 _update_job(
                     db, job_id, status="completed",
                     drive_folder_link=f"local:{out_dir}", local_folder_path=out_dir,
-                    error_message="อัปโหลด Drive ไม่สำเร็จ — ไฟล์อยู่ในเครื่องที่ " + out_dir,
+                    error_message=((warning + " ") if warning else "")
+                    + "อัปโหลด Drive ไม่สำเร็จ — ไฟล์อยู่ในเครื่องที่ " + out_dir,
                 )
             return
 
         _update_job(
             db, job_id, status="completed",
             drive_folder_link=f"local:{out_dir}", local_folder_path=out_dir,
-            error_message="ยังไม่ได้ตั้งค่า Google Drive — ไฟล์ถูกเก็บไว้ที่ " + out_dir,
+            error_message=((warning + " ") if warning else "")
+            + "ยังไม่ได้ตั้งค่า Google Drive — ไฟล์ถูกเก็บไว้ที่ " + out_dir,
         )
 
     except Exception as e:

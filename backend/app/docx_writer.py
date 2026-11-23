@@ -82,6 +82,8 @@ def _cover(doc, storyboard, subtitle):
         f"({storyboard['total_seconds']} วินาที) · {len(storyboard['scenes'])} ฉาก",
         size=11, color=GREY, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=14,
     )
+    if storyboard.get("warning"):
+        _boxed(doc, storyboard["warning"], size=10, fill="FEF3C7")
 
 
 # ---------------------------------------------------------------- script.docx
@@ -369,6 +371,8 @@ def build_video_prompts_docx(storyboard, shots, images_dir, path, max_seconds=10
         f"พรอมป์ตสร้างวิดีโอ · {len(shots)} ช็อต · ช็อตละไม่เกิน {max_seconds} วินาที",
         size=11, color=GREY, align=WD_ALIGN_PARAGRAPH.CENTER, space_after=12,
     )
+    if storyboard.get("warning"):
+        _boxed(doc, storyboard["warning"], size=10, fill="FEF3C7")
 
     _para(doc, "วิธีใช้", size=14, bold=True)
     for i, step in enumerate([
