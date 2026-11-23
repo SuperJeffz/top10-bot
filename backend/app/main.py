@@ -74,6 +74,7 @@ def get_config():
         "gemini_key_set": bool(key),
         "gemini_key_hint": (key[:6] + "..." + key[-4:]) if len(key) > 12 else "",
         "ollama_model": (os.getenv("OLLAMA_MODEL") or "llama3.1:8b").strip(),
+        "can_open_local": os.name == "nt",
     }
 
 
@@ -160,6 +161,11 @@ def open_job_folder(job_id: str, file: str | None = None):
         raise HTTPException(
             status_code=400,
             detail="ไม่พบไฟล์ในเครื่องของงานนี้ (อาจอยู่บน Drive เพียงอย่างเดียว)",
+        )
+    if os.name != "nt":
+        raise HTTPException(
+            status_code=400,
+            detail="เปิดไฟล์ในเครื่องได้เฉพาะเมื่อรันบน Windows — บน Render ให้ใช้ลิงก์ Google Drive",
         )
 
     if file:

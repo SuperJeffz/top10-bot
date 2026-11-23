@@ -442,8 +442,9 @@ export default function App() {
 
             {current.drive_folder_link && (
               <div className="mt-4 p-3 bg-green-50 rounded-lg space-y-2">
-                {(current.local_folder_path ||
-                  current.drive_folder_link.startsWith("local:")) && (
+                {config?.can_open_local &&
+                  (current.local_folder_path ||
+                    current.drive_folder_link.startsWith("local:")) && (
                   <div>
                     <div className="flex flex-wrap gap-2">
                       <button
@@ -592,7 +593,9 @@ export default function App() {
         </section>
 
         <footer className="text-center text-xs text-slate-400 mt-8">
-          รันในเครื่องพี่เอง · Ollama + FastAPI + SQLite · ไม่มีค่าใช้จ่ายรายเดือน
+          {config?.can_open_local
+            ? "รันในเครื่องพี่เอง · Gemini/Ollama + FastAPI + SQLite · ไม่มีค่าใช้จ่ายรายเดือน"
+            : "รันบน Render · Gemini + FastAPI · ไฟล์เก็บใน Google Drive · ฟรี"}
         </footer>
       </div>
     </div>
