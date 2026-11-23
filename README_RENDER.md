@@ -46,6 +46,8 @@ git push -u origin main
 | `SHOT_MAX_SECONDS` | `10` | |
 | `SHOT_LLM_PROMPTS` | `1` | |
 | `ENABLE_IMAGE_SEARCH` | `0` | ตั้ง `1` เพื่อเปิดค้นหารูปอินเทอร์เน็ต (ช้ากว่ามาก) |
+| `GEMINI_STORYBOARD_BUDGET` | `150` | วิ — หมดเวลาแล้วใช้บทสำรองทันที |
+| `GEMINI_JSON_BUDGET` | `45` | วิ — จำกัดเวลาปรับพรอมป์ตช็อต |
 
 > `RENDER_EXTERNAL_URL` Render ตั้งให้เอง — หนูใช้มันใน keepalive
 

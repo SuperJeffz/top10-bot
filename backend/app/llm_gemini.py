@@ -78,10 +78,13 @@ def _call_model(
     model,
     api_key,
     prompt,
-    timeout=(20, 180),
+    timeout=(10, 60),
     temperature=0.9,
     fast_fail=False,
 ):
+    if fast_fail:
+        # งานเสริม (พรอมป์ตช็อต) ไม่ควรรอนาน — ถ้าโมเดลไม่ตอบให้ไปตัวถัดไปเร็ว ๆ
+        timeout = (6, 15)
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -93,7 +96,7 @@ def _call_model(
     }
     url = f"{API_BASE}/{model}:generateContent"
 
-    for attempt in range(3):
+    for attempt in range(2):
         try:
             r = requests.post(
                 url,
@@ -102,15 +105,15 @@ def _call_model(
                 timeout=timeout,
             )
         except requests.exceptions.Timeout:
-            if not fast_fail and attempt < 2:
-                time.sleep(2 * (attempt + 1))
+            if not fast_fail and attempt < 1:
+                time.sleep(2)
                 continue
             raise
 
         # 503/429 เป็นช่วงโหลดสูงหรือโควต้าชั่วคราว → รอแล้ว retry โมเดลเดิมก่อน
         if r.status_code in (429, 503):
-            if not fast_fail and attempt < 2:
-                time.sleep(2 * (attempt + 1) + 2)
+            if not fast_fail and attempt < 1:
+                time.sleep(3)
                 continue
             raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:200]}")
 
@@ -130,7 +133,7 @@ def _call_model(
 
         return _parse_json(text)
 
-    raise GeminiError(f"{model} -> ไม่พร้อมหลัง retry 3 ครั้ง")
+    raise GeminiError(f"{model} -> ไม่พร้อมหลัง retry 2 ครั้ง")
 
 
 def generate_storyboard(topic: str, minutes: int):
@@ -148,10 +151,18 @@ def generate_storyboard(topic: str, minutes: int):
 
     prompt = build_prompt(topic, minutes)
     errors = []
+    budget = float(os.getenv("GEMINI_STORYBOARD_BUDGET", "150") or 150)
+    started = time.monotonic()
 
     for model in models:
-        # รอบแรกใช้ temperature ปกติ ถ้า JSON เพี้ยนให้retry รอบสองแบบเข้มงวด
+        # จำกัดเวลารวม — ถ้า Gemini โหลดช้าให้ตก fallback เร็ว ๆ อย่าให้งานค้างนาน
+        if time.monotonic() - started > budget:
+            print(f"[gemini] ใช้เวลาเกิน {budget:.0f} วิ ใช้บทสำรองออฟไลน์แทน")
+            break
+        # รอบแรกใช้ temperature ปกติ ถ้า JSON เพี้ยนให้ retry รอบสองแบบเข้มงวด
         for strict in (False, True):
+            if time.monotonic() - started > budget:
+                break
             try:
                 final_prompt = prompt + STRICT_SUFFIX if strict else prompt
                 data = _call_model(
@@ -178,7 +189,7 @@ def generate_storyboard(topic: str, minutes: int):
     return finalize(build_offline_storyboard(topic, minutes), topic, minutes)
 
 
-def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
+def generate_json(prompt: str, temperature: float = 0.7, timeout=(6, 15)):
     """เรียก Gemini แบบทั่วไป (ขอผลเป็น JSON) พร้อม fallback โมเดล — ใช้กับงานเสริม เช่น พรอมป์ตวิดีโอ"""
     api_key = (os.getenv("GEMINI_API_KEY") or "").strip()
     if not api_key:
@@ -188,7 +199,11 @@ def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
     models = [configured] + [m for m in FALLBACK_MODELS if m != configured]
 
     last = None
+    budget = float(os.getenv("GEMINI_JSON_BUDGET", "45") or 45)
+    started = time.monotonic()
     for model in models:
+        if time.monotonic() - started > budget:
+            break
         try:
             return _call_model(
                 model, api_key, prompt,
@@ -197,4 +212,4 @@ def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
         except Exception as e:  # noqa: BLE001
             last = e
             continue
-    raise GeminiError(f"เรียก Gemini ไม่สำเร็จ: {str(last)[:300]}")
+    raise GeminiError(f"เรียก Gemini ไม่สำเร็จ (ภายใน {budget:.0f} วิ): {str(last)[:300]}")
