@@ -1,69 +1,133 @@
 """Google Gemini (AI Studio) — คุณภาพภาษาไทยดีมาก และมี free tier
 
-มีระบบ fallback: ถ้าโมเดลที่ตั้งไว้ใช้ไม่ได้ (404 / 429 โควตาหมด / 503 / timeout)
+มีระบบ fallback: ถ้าโมเดลที่ตั้งไว้ใช้ไม่ได้ (404 / 429 / 503 / timeout / JSON เพี้ยน)
 จะลองโมเดลสำรองใน FALLBACK_MODELS ให้อัตโนมัติ
+ถ้าทุกโมเดลไม่พร้อมจะใช้บทสำรองออฟไลน์แทน เพื่อให้งานยังเสร็จและได้ไฟล์ครบ
 """
 
-import os
 import json
+import os
+import re
+import time
+
 import requests
 
 from app.story_prompt import build_prompt, finalize
+from app.story_fallback import build_offline_storyboard
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 # ลำดับโมเดลสำรอง (ตัวหลัง ๆ ใช้เมื่อตัวหน้าใช้ไม่ได้)
+# 3.8-flash คือโมเดลที่ Google แนะนำแทน 2.5-flash ที่ยกเลิกไปแล้ว
 FALLBACK_MODELS = [
+    "gemini-3.8-flash",
     "gemini-3.6-flash",
+    "gemini-4-hydrogen",
     "gemini-3-flash-preview",
     "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
     "gemini-3.1-flash-lite-preview",
-    "gemini-2.5-flash",
 ]
+
+STRICT_SUFFIX = (
+    "\n\n【สำคัญมาก】ตอบเป็น JSON ที่ถูกต้องตามโครงสร้างด้านบนเท่านั้น "
+    "ห้ามมีข้อความอื่น ห้ามใช้ markdown code fence ทุก string ต้องปิดเครื่องหมายคำพูดให้ครบ"
+)
 
 
 class GeminiError(RuntimeError):
     pass
 
 
-def _call_model(model, api_key, prompt, timeout=(20, 180)):
+def _parse_json(text: str):
+    """อ่าน JSON ให้ทนทานต่อข้อความเพี้ยน ๆ ที่โมเดลบ่อยครั้งตอบกลับมา"""
+    cleaned = (text or "").strip()
+    cleaned = cleaned.replace("```json", "").replace("```", "").strip()
+
+    candidates = [cleaned]
+    for op, cl in (("{", "}"), ("[", "]")):
+        i, j = cleaned.find(op), cleaned.rfind(cl)
+        if i >= 0 and j > i:
+            candidates.append(cleaned[i : j + 1])
+
+    candidates.append(re.sub(r",\s*([}\]])", r"\1", cleaned))
+    candidates.append(
+        cleaned.translate(str.maketrans({"“": '"', "”": '"', "‘": "'", "’": "'"}))
+    )
+
+    last = None
+    for cand in candidates:
+        try:
+            # strict=False อนุญาตให้มี control character (เช่น newline) ใน string
+            return json.loads(cand, strict=False)
+        except Exception as e:  # noqa: BLE001
+            last = e
+
+    for cand in candidates:
+        try:
+            obj, _ = json.JSONDecoder(strict=False).raw_decode(cand.lstrip())
+            return obj
+        except Exception as e:  # noqa: BLE001
+            last = e
+
+    raise last or json.JSONDecodeError("JSON ไม่ถูกต้อง", cleaned[:100], 0)
+
+
+def _call_model(
+    model,
+    api_key,
+    prompt,
+    timeout=(20, 180),
+    temperature=0.9,
+):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
         "generationConfig": {
             "responseMimeType": "application/json",
-            "temperature": 0.9,
+            "temperature": temperature,
             "topP": 0.95,
             "maxOutputTokens": 16384,
         },
     }
+    url = f"{API_BASE}/{model}:generateContent"
 
-    r = requests.post(
-        f"{API_BASE}/{model}:generateContent",
-        headers={
-            "x-goog-api-key": api_key,
-            "Content-Type": "application/json",
-        },
-        json=payload,
-        timeout=timeout,
-    )
+    for attempt in range(3):
+        try:
+            r = requests.post(
+                url,
+                headers={"x-goog-api-key": api_key, "Content-Type": "application/json"},
+                json=payload,
+                timeout=timeout,
+            )
+        except requests.exceptions.Timeout:
+            if attempt < 2:
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise
 
-    if r.status_code != 200:
-        raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:300]}")
+        # 503/429 เป็นช่วงโหลดสูงหรือโควต้าชั่วคราว → รอแล้ว retry โมเดลเดิมก่อน
+        if r.status_code in (429, 503) and attempt < 2:
+            time.sleep(2 * (attempt + 1) + 2)
+            continue
 
-    body = r.json()
-    candidates = body.get("candidates") or []
-    if not candidates:
-        raise GeminiError(f"{model} -> ไม่คืนคำตอบ: {json.dumps(body)[:300]}")
+        if r.status_code != 200:
+            raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:300]}")
 
-    parts = candidates[0].get("content", {}).get("parts") or []
-    text = "".join(p.get("text", "") for p in parts).strip()
-    if not text:
-        reason = candidates[0].get("finishReason")
-        raise GeminiError(f"{model} -> ข้อความว่าง (finishReason={reason})")
+        body = r.json()
+        candidates = body.get("candidates") or []
+        if not candidates:
+            raise GeminiError(f"{model} -> ไม่คืนคำตอบ: {json.dumps(body)[:300]}")
 
-    text = text.replace("```json", "").replace("```", "").strip()
-    return json.loads(text)
+        parts = candidates[0].get("content", {}).get("parts") or []
+        text = "".join(p.get("text", "") for p in parts).strip()
+        if not text:
+            reason = candidates[0].get("finishReason")
+            raise GeminiError(f"{model} -> ข้อความว่าง (finishReason={reason})")
+
+        return _parse_json(text)
+
+    raise GeminiError(f"{model} -> ไม่พร้อมหลัง retry 3 ครั้ง")
 
 
 def generate_storyboard(topic: str, minutes: int):
@@ -83,27 +147,32 @@ def generate_storyboard(topic: str, minutes: int):
     errors = []
 
     for model in models:
-        try:
-            data = _call_model(model, api_key, prompt)
-            data = finalize(data, topic, minutes)
-            if model != configured:
-                print(f"[gemini] ใช้โมเดลสำรอง {model} (ตัวหลักใช้ไม่ได้)")
-            return data
-        except json.JSONDecodeError as e:
-            errors.append(f"{model} -> JSON เพี้ยน: {e}")
-            print(f"[gemini] {model} ตอบไม่เป็น JSON ลองตัวถัดไป")
-        except requests.exceptions.Timeout:
-            errors.append(f"{model} -> timeout")
-            print(f"[gemini] {model} timeout ลองตัวถัดไป")
-        except Exception as e:  # GeminiError / network
-            errors.append(str(e)[:300])
-            print(f"[gemini] {model} ล้มเหลว ลองตัวถัดไป")
+        # รอบแรกใช้ temperature ปกติ ถ้า JSON เพี้ยนให้retry รอบสองแบบเข้มงวด
+        for strict in (False, True):
+            try:
+                final_prompt = prompt + STRICT_SUFFIX if strict else prompt
+                data = _call_model(
+                    model,
+                    api_key,
+                    final_prompt,
+                    temperature=0.2 if strict else 0.9,
+                )
+                data = finalize(data, topic, minutes)
+                if model != configured:
+                    print(f"[gemini] ใช้โมเดลสำรอง {model} (ตัวหลักใช้ไม่ได้)")
+                return data
+            except json.JSONDecodeError as e:
+                errors.append(f"{model} -> JSON เพี้ยน: {e}")
+                print(f"[gemini] {model} JSON เพี้ยน {'ลองใหม่แบบเข้มงวด' if not strict else 'ลองตัวถัดไป'}")
+                continue
+            except Exception as e:  # GeminiError / network
+                errors.append(str(e)[:300])
+                print(f"[gemini] {model} ล้มเหลว ลองตัวถัดไป")
+                break
 
-    raise RuntimeError(
-        "Gemini ใช้ไม่ได้ทุกโมเดล:\n" + "\n".join(errors)
-        + "\n\nลองเปลี่ยนโมเดลในหน้า «ตั้งค่า AI» หรือเช็กโควตาที่ "
-        "https://aistudio.google.com/apikey"
-    )
+    # Gemini ไม่พร้อมชั่วคราว (503 ทุกโมเดล) → ยัง delivers งานให้ได้
+    print("[gemini] ทุกโมเดลไม่พร้อม ใช้บทสำรองออฟไลน์แทน")
+    return finalize(build_offline_storyboard(topic, minutes), topic, minutes)
 
 
 def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
@@ -118,9 +187,8 @@ def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
     last = None
     for model in models:
         try:
-            payload = _call_model(model, api_key, prompt, timeout=timeout)
-            return payload
-        except Exception as e:
+            return _call_model(model, api_key, prompt, timeout=timeout, temperature=temperature)
+        except Exception as e:  # noqa: BLE001
             last = e
             continue
     raise GeminiError(f"เรียก Gemini ไม่สำเร็จ: {str(last)[:300]}")
