@@ -80,6 +80,7 @@ def _call_model(
     prompt,
     timeout=(20, 180),
     temperature=0.9,
+    fast_fail=False,
 ):
     payload = {
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -101,15 +102,17 @@ def _call_model(
                 timeout=timeout,
             )
         except requests.exceptions.Timeout:
-            if attempt < 2:
+            if not fast_fail and attempt < 2:
                 time.sleep(2 * (attempt + 1))
                 continue
             raise
 
         # 503/429 เป็นช่วงโหลดสูงหรือโควต้าชั่วคราว → รอแล้ว retry โมเดลเดิมก่อน
-        if r.status_code in (429, 503) and attempt < 2:
-            time.sleep(2 * (attempt + 1) + 2)
-            continue
+        if r.status_code in (429, 503):
+            if not fast_fail and attempt < 2:
+                time.sleep(2 * (attempt + 1) + 2)
+                continue
+            raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:200]}")
 
         if r.status_code != 200:
             raise GeminiError(f"{model} -> HTTP {r.status_code}: {r.text[:300]}")
@@ -187,7 +190,10 @@ def generate_json(prompt: str, temperature: float = 0.7, timeout=(20, 150)):
     last = None
     for model in models:
         try:
-            return _call_model(model, api_key, prompt, timeout=timeout, temperature=temperature)
+            return _call_model(
+                model, api_key, prompt,
+                timeout=timeout, temperature=temperature, fast_fail=True,
+            )
         except Exception as e:  # noqa: BLE001
             last = e
             continue
